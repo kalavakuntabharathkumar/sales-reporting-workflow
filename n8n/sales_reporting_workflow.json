@@ -1,0 +1,206 @@
+{
+  "name": "Sales Reporting - Approved Integrations (Starter)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT order_id, order_date, region, product, quantity, unit_price, 'postgres' AS source FROM sales_orders WHERE order_date >= CURRENT_DATE - INTERVAL '30 days';"
+      },
+      "id": "postgres-query",
+      "name": "Read PostgreSQL Sales",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Adjustments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "sheets-read",
+      "name": "Read Google Sheets Adjustments",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "merge-sources",
+      "name": "Combine Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\\nconst clean = [];\\nfor (const row of rows) { const quantity = Number(row.quantity); const unit_price = Number(row.unit_price); if (!row.order_id || !row.region || !Number.isFinite(quantity) || !Number.isFinite(unit_price) || quantity < 0 || unit_price < 0) continue; clean.push({json:{order_id:String(row.order_id), region:String(row.region), product:String(row.product || 'Unknown'), quantity, unit_price, sales_amount:quantity*unit_price, source:row.source || 'sheets'}}); }\\nconst seen = new Map(); for (const item of clean) seen.set(item.json.order_id, item); return [...seen.values()];"
+      },
+      "id": "normalize",
+      "name": "Validate and Calculate Sales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json); const totals = {}; for (const r of rows) { if (!totals[r.region]) totals[r.region] = {region:r.region, orders:0, sales_amount:0}; totals[r.region].orders += 1; totals[r.region].sales_amount += r.sales_amount; } const lines = Object.values(totals).sort((a,b)=>b.sales_amount-a.sales_amount).map(x => `${x.region}: ${x.orders} orders, ${x.sales_amount.toFixed(2)} sales`); return [{json:{message:`Weekly sales report\\n${lines.join('\\n')}\\nRows processed: ${rows.length}`}}];"
+      },
+      "id": "summary",
+      "name": "Build Regional Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SLACK_CHANNEL_ID",
+          "mode": "id"
+        },
+        "text": "={{ $json.message }}",
+        "otherOptions": {}
+      },
+      "id": "slack-post",
+      "name": "Post Summary to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1220,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Read PostgreSQL Sales",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Google Sheets Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read PostgreSQL Sales": {
+      "main": [
+        [
+          {
+            "node": "Combine Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Google Sheets Adjustments": {
+      "main": [
+        [
+          {
+            "node": "Combine Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Sources": {
+      "main": [
+        [
+          {
+            "node": "Validate and Calculate Sales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Calculate Sales": {
+      "main": [
+        [
+          {
+            "node": "Build Regional Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Regional Summary": {
+      "main": [
+        [
+          {
+            "node": "Post Summary to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "starter-template",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

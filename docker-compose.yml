@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sales_demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_only}
+      POSTGRES_DB: ${POSTGRES_DB:-sales_reporting}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sales_demo} -d ${POSTGRES_DB:-sales_reporting}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-sales_reporting}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-sales_demo}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_only}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-replace_with_a_long_random_value}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-change_me_before_use}
+      GENERIC_TIMEZONE: Asia/Kolkata
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - n8n_data:/home/node/.n8n
+volumes:
+  postgres_data:
+  n8n_data:
